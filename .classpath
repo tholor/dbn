@@ -9,5 +9,10 @@
 	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/mahout-core-0.9.jar"/>
 	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/guava-r05.jar"/>
 	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/commons-math3-3.5.jar"/>
+	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/poi-3.14-beta1/poi-3.14-beta1-20151223.jar"/>
+	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/poi-3.14-beta1/ooxml-lib/xmlbeans-2.6.0.jar"/>
+	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/poi-3.14-beta1/lib/commons-codec-1.10.jar"/>
+	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/poi-3.14-beta1/poi-ooxml-3.14-beta1-20151223.jar"/>
+	<classpathentry kind="lib" path="C:/Users/Malte/workspace/DBN/poi-3.14-beta1/poi-ooxml-schemas-3.14-beta1-20151223.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
