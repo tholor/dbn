@@ -10,7 +10,7 @@ public class Case {
 	private ArrayList<Integer> states;
 	private ArrayList<Integer> slices;
 	public double prediction;
-	public double deathPeriod; //period where patient died, -1 if death was not observed (censored patient)
+	public int deathPeriod; //period where patient died, -1 if death was not observed (censored patient)
 	public int outcome; //0 = survival, 1 = dead
 	public int nObservations;
 	public int fold; //for cross-validation

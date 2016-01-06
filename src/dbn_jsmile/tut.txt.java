@@ -18,7 +18,7 @@ public class tut {
 	
 	private static void learnNetwork(String path, String inputNet, String inputData, String outputNet){
 		Network net = new Network();
-		net.readFile(path+inputNet); 
+		net.readFile(path+inputNet); //use this network in second run (is the result of the first run)
 		DataSet ds = new DataSet();
 		ds.readFile(path+inputData); 
 		// matching
