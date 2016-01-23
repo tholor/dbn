@@ -60,32 +60,33 @@ public class DBN  {
 		//****************************************
 		//SETTINGS
 		//Prediction
-		//Be aware: first month on dialysis = period 0 in DBN (vs. period 1 in database)
-		//int curPeriod = 3;  //using evidence until curPeriod (including that period)
-		int[] curPeriods = {2,5,8,11};
-		final int[] predHorizons = {1,3,6,12};
-		//int[] predPeriods = {4,6,9,15};//predicting prob. of survival(including that period)
+		int[] curPeriods = {3,6,9,12}; //landmarks s from which we want to predict
+		final int[] predHorizons = {1,3,6,12}; //horizon w = number of months predicting ahead from each landmark (prob. of survival including that last period)
 		final int timelag = 1; // number of periods used as time lag (e.g. 1 => using covariates from t-1 together with "death" in t)
 		final boolean fixedHorizon = false; //if probabilities in node "death" already reflect cum. prob. of surviving a fixed interval instead of monthly hazards (e.g. surviving the next 12 months)
-		final boolean includePeriodZero = true; //should period 0 (before initialization of dialysis) be included?
+		final int exludingPeriodZero = 0; //1 means period zero is not included, the number of the other periods has to be adjusted by -1
 		final boolean foldedCV = true; //Cross validation
 		int numFolds = 5;
+		final int repeats = 1;
+		final boolean writePredictions = false;
 		//Learning
 		final boolean learningParams = true; //shall parameter be learned
 		final int maxPeriod = 36; //maximum period from the data that should be used for learning
 		final boolean uniformize = false; //uniformize initial parameters of CPTs
 		final boolean randomize = false; // randomize initial parameters of CPTs
 		final int equivalentSampleSize = 1; // strength of prior beliefs of initial parameters in the CPTs
-		final boolean fromCompleteData = true; // specifies whether one network should be learned from the complete data set (in addition to the folded sets)
+		final boolean fromCompleteData = false; // specifies whether one network should be learned from the complete data set (in addition to the folded sets)
 		//Files
-		final String path = "C:/Users/Malte/Dropbox/FIM/08 Masterarbeit/06 Coding/Smile/networks/batch_testing/batch7/";
+		final String path = "C:/Users/Malte/Dropbox/FIM/08 Masterarbeit/06 Coding/Smile/networks/batch_testing/batch10/";
 		//final String dataFile = path+"small.txt";
 		//final String[] networks = {"v9_age_inter.xdsl","v13_pneu_rev.xdsl"};
 		final String networkFolder = path+"input/";
 		final String tableName = "03_model_dbn_state_0";
 		final String resultsFile = "C:/Users/Malte/Dropbox/FIM/08 Masterarbeit/06 Coding/Smile/evaluation/performance.xlsx";
-		final String comment = "";
+		final String comment = "high variation inter-arcs, forecasted age, time";
 		//****************************************
+		for (int i = 0; i < curPeriods.length; i++) curPeriods[i] -= exludingPeriodZero; //adjust periods, if period zero is excluded
+
 		File folder = new File(networkFolder);
 		File[] listOfFiles = folder.listFiles();
 		for(File network:listOfFiles){
@@ -100,17 +101,20 @@ public class DBN  {
 
 			if(!dbnet.net.isTarget("Death"))dbnet.net.setTarget("Death",true); //set target node for faster inference
 			//Import data from database
-			dbnet.getData(tableName, timelag, maxPeriod);
+			dbnet.getData(tableName, timelag, maxPeriod, exludingPeriodZero);
 			//Simple test
-			//dbnet.simpleTest("LIB0000022737",  2,  14, 12, true);
+			//dbnet.simpleTest("LIB0000001964",  6,  18, 1, false);
+			//System.out.println("missingRatio"+dbnet.missingData("LIB0000000074", 13));
+
 			//Learn parameters of one network from complete data set
 			if(fromCompleteData){
 				dbnet.learnParametersDB(path+"/output/smile_compl_"+networkName, 0, false ,randomize, equivalentSampleSize, uniformize);
 				dbnet.net.clearAllEvidence();
 			}
-
+			
 			//****************************************
 			//Evaluate with cross validation
+			for(int rep = 0; rep < repeats; rep++){
 			//divide data set for k-fold CV and prepare array for AUCs
 			Double[][][] auc;
 			if(foldedCV) {
@@ -122,7 +126,7 @@ public class DBN  {
 			}
 			//Learn, predict, evaluate (for each fold)
 			for (int fold = 0; fold < numFolds; fold++){
-			System.out.println("Fold " + fold + ":");
+			System.out.println("*** Fold " + fold + ":");
 			//Learn parameters
 					if(learningParams){
 					dbnet.learnParametersDB(networkFileOut, fold, foldedCV, randomize, equivalentSampleSize, uniformize);
@@ -141,18 +145,21 @@ public class DBN  {
 									//set evidence
 									//System.out.println("Set evidence for patient "+pid);
 									dbnet.setEvidenceUntil(dbnet.cases.get(pid),curPeriod, timelag);
-									//set forecasted "Age" evidence
-									//dbnet.setNodeEvidenceUntil("Age",dbnet.cases.get(pid),predPeriod);
+									//set "forecasted" evidence
+									dbnet.setNodeEvidenceUntil("Age",dbnet.cases.get(pid),curPeriod,predPeriod-timelag); // for age
+									if(dbnet.nodeNames.contains("Time_dialysis"))dbnet.setNodeEvidenceUntil("Time_dialysis",dbnet.cases.get(pid),curPeriod,predPeriod-timelag); //for time on dialysis
+									//if(dbnet.nodeNames.contains("High_cci"))dbnet.setNodeEvidenceUntil("High_cci",dbnet.cases.get(pid),curPeriod,predPeriod-timelag); //for CCI
+
 									//Predict survival for predPeriod
 									double surv = dbnet.getSurvivalProb(predPeriod, timelag, fixedHorizon); 
 									dbnet.cases.get(pid).prediction = surv;
 									//Set real outcome
-									if(dbnet.cases.get(pid).deathPeriod != -1 && dbnet.cases.get(pid).deathPeriod <= predPeriod) { //-1 results from "day of death => null" in the data base
+									if(dbnet.cases.get(pid).deathPeriod != null && dbnet.cases.get(pid).deathPeriod <= predPeriod) { //-1 results from "day of death => null" in the data base
 										dbnet.cases.get(pid).outcome = 1;
 									}else {
 										dbnet.cases.get(pid).outcome = 0;
 									}
-									//dbnet.writePredictionsCSV("pred1.csv", curPeriod);   
+									if(writePredictions)dbnet.writePredictionsCSV("pred6_from_complete_data.csv", curPeriod);   
 									//System.out.println("P(surviving) longer than period "+predPeriod+" (pid: "+pid+"= "+surv);
 									//System.out.println("Actually dead? "+dbnet.cases.get(pid).outcome );
 									dbnet.net.clearAllEvidence();
@@ -192,7 +199,8 @@ public class DBN  {
 			//write results to excel file
 			long elapsed_time = System.currentTimeMillis()-start_time;
 			String duration = Long.toString(TimeUnit.MINUTES.convert(elapsed_time, TimeUnit.MILLISECONDS))+ " Min";
-			dbnet.writeResults(resultsFile, networkName,"", tableName, comment, uniformize, maxPeriod, timelag, avg_aucs, duration);
+			dbnet.writeResults(resultsFile, networkName,"", tableName, comment+", rep: "+rep, uniformize, maxPeriod, timelag, avg_aucs, duration);
+		}
 		}
 		 catch (SMILEException e) {
 		   System.out.println(e.getMessage());
@@ -200,7 +208,7 @@ public class DBN  {
 		}
 	}	
 
-	public void getData(String tableName, int timelag, int maxPeriod)throws ClassNotFoundException{
+	public void getData(String tableName, int timelag, int maxPeriod, int exludingPeriodZero)throws ClassNotFoundException{
 		System.out.println("Starting data import...");
 		Class.forName("com.mysql.jdbc.Driver");  
 		Connection connection = null;
@@ -216,10 +224,11 @@ public class DBN  {
 			temp.remove("Infection_Risk");
 			temp.remove("Cardiovascular_Risk");
 			temp.remove("Bone_Risk");
+			temp.remove("General_condition");
 
 			String colsToSelect = temp.toString();
 			colsToSelect = colsToSelect.substring(1, colsToSelect.length()-1).toLowerCase();
-			String query = "SELECT pid, period, "+colsToSelect+", period_of_death FROM "+tableName+" where period <="+(maxPeriod+1);//+" AND pid like 'LIB0000022%'"; //+1 because of notation differences in mySQL database
+			String query = "SELECT pid, period, "+colsToSelect+", period_of_death, age_onset FROM "+tableName+" where period <="+(maxPeriod+exludingPeriodZero)+" AND period !=" + (exludingPeriodZero-1);//+" AND pid like 'LIB0000022%'"; //+1 because of notation differences in mySQL database
 			//" where period < 4 AND pid in ('LIB0000000074','LIB0000001251','LIB0000001755','LIB0000001867','LIB0000001964')
 			System.out.println("Query: "+query);
 			//execute
@@ -232,7 +241,7 @@ public class DBN  {
 			System.out.println("-> Result: table with "+nrows+" rows and "+r.getMetaData().getColumnCount()+" columns ");
 
 			//import as cases to DBN object
-			this.convertToCases(r, timelag);
+			this.convertToCases(r, timelag, exludingPeriodZero);
 		} catch (SQLException e) { 
 		} finally { 
 			if(connection != null) try { 
@@ -242,7 +251,7 @@ public class DBN  {
 				  } 
 			} 
 	}	
-	public void convertToCases(ResultSet r, int timelag){
+	public void convertToCases(ResultSet r, int timelag, int exludingPeriodZero){
 		//set structure
 		String pid;
 		Case curCase;
@@ -252,6 +261,8 @@ public class DBN  {
 		nodeNames.remove("Infection_Risk");
 		nodeNames.remove("Cardiovascular_Risk");
 		nodeNames.remove("Bone_Risk");
+		nodeNames.remove("General_condition");
+
 		try{
 			  // iterate over results
 			  while (r.next()) {
@@ -260,14 +271,19 @@ public class DBN  {
 					  curCase = this.cases.get(pid);
 					 //System.out.println("Add record to: "+pid);
 				  }else{
+					  //System.out.println("New Case created: "+pid);
 					  curCase = new Case(pid);
 					  this.cases.put(pid, curCase);
-					  this.cases.get(pid).deathPeriod = r.getInt("period_of_death")-1; //CHANGED, was -1 because periods start with 0 in SMILE
-					 //System.out.println("New Case created: "+pid);
-				  }
-				  
+					  int periodDeath = r.getInt("period_of_death");
+					  Double age_onset = r.getDouble("age_onset");
+					  if(!r.wasNull()){
+						  this.cases.get(pid).deathPeriod = periodDeath-exludingPeriodZero; //CHANGED, was -1 because periods start with 0 in SMILE
+						  this.cases.get(pid).age_onset = age_onset;
+						  //System.out.println("Period of death = "+periodDeath);
+					  }
+				  }			  
 				  //get values and add them to case
-				  int curSlice = r.getInt("period")-1;
+				  int curSlice = r.getInt("period")-exludingPeriodZero;
 
 				  for(String name:nodeNames){
 					  int obsState = r.getInt(name);
@@ -485,20 +501,56 @@ public class DBN  {
 		//use only evidence until a maximum period
 		setEvidenceUntil(c.getNodes(), ArrayUtils.toPrimitive(c.getSlices()),  ArrayUtils.toPrimitive(c.getStates()), maxPeriod, timelag);
 	}
-	public void setNodeEvidenceUntil(String nodeName, Case c, int predPeriod) {
-		//set evidence for one particular node until a certain period
+	public void setNodeEvidenceUntil(String nodeName, Case c,int curPeriod, int predPeriod) {
+		//set evidence for one particular node from curPeriod until predPeriod
+		//for the deterministic nodes age and time_dialysis the states will be calculated
+		//for other nodes the last observation before curPeriod will be used 
 		String[] nodesIn = c.getNodes();
 		Integer[] slicesIn = c.getSlices();
 		Integer[] statesIn = c.getStates();
 		String name;
-		for(int i = 0; i< nodesIn.length; i++){
-			name = nodesIn[i];
-			//System.out.println("Name of node: "+name);
-			if(name.equals(nodeName) && slicesIn[i]<= predPeriod && statesIn[i] != null){
-				//System.out.println("set:"+nodesIn[i]+" in slice "+slicesIn[i]+" to "+statesIn[i]);
-				this.net.setTemporalEvidence(nodesIn[i], slicesIn[i], statesIn[i]);	
-			}			
+		
+		//get last observation before landmark
+		int lastPeriod = 0;
+		Integer lastState = null;
+		if(!nodeName.equals("Age") && !nodeName.equals("Time_dialysis")){
+			for(int i = 0; i < nodesIn.length; i++){
+				name = nodesIn[i];
+				if(name.equals(nodeName) && slicesIn[i]<= predPeriod && statesIn[i] != null){
+					lastState = statesIn[i];
+				}
+			}
 		}
+		// set states for all period between landmark and predicted period
+		for(int p = curPeriod; p <= predPeriod; p++){
+			switch(nodeName){ 		
+			case "Age": 
+				//calculate age in period p
+				int age = (int)(c.age_onset+((double)p/12));
+				if(age < 60) age = 0; 
+				if(age >= 60 && age < 70) age = 1;
+				if(age >= 70 && age < 80) age = 2;
+				if(age >= 80) age = 3;
+				this.net.setTemporalEvidence(nodeName, p, age);
+				//System.out.println("Set: age = "+age+" for "+c.case_number+" in period "+p);
+				break;
+			case "Time_dialysis":
+				//get state for time node
+				int time;
+				if(p <= 6){
+					time = 0;
+				}else{
+					time = 1;
+				}
+				this.net.setTemporalEvidence(nodeName, p, time);
+				//System.out.println("Set: time = "+time+" for "+c.case_number+" in period "+p);
+				break;
+			default:
+				this.net.setTemporalEvidence(nodeName, p, lastState); //all other nodes use last observation
+				//System.out.println("Set: "+nodeName+" = "+lastState+" for "+c.case_number+" in period "+p);
+				break;
+			}	
+		}		
 	}
 	
 	public double[][] getHazards(int[] periods){
@@ -543,8 +595,7 @@ public class DBN  {
 		//case 2: the node "death" already contains probability for surviving the interval until a fixed horizon (e.g. next 12 months)
 		else{
 			prob = 1-getHazard(period-timelag); //should result in the same as curPeriod
-		}
-		
+		}	
 		return prob;
 	}
 	public double[] getSurvivalProbs(int period){
@@ -563,9 +614,9 @@ public class DBN  {
 		int dead = 0;
 		int alive = 0;
 		for (String pid: this.cases.keySet()){
-			if(this.cases.get(pid).deathPeriod == -1 || this.cases.get(pid).deathPeriod > curPeriod){ //CHANGED, was >=; only use patients that are still alive at landmark time- check again if >= makes sense 
+			if(this.cases.get(pid).deathPeriod == null || this.cases.get(pid).deathPeriod > curPeriod){ //CHANGED, was >=; only use patients that are still alive at landmark time- check again if >= makes sense 
 				score.add(this.cases.get(pid).outcome, 1-this.cases.get(pid).prediction);
-				System.out.println("added pid: "+pid+", outcome: "+this.cases.get(pid).outcome+", prediction: "+(1-this.cases.get(pid).prediction));
+				//System.out.println("added pid: "+pid+", outcome: "+this.cases.get(pid).outcome+", prediction: "+(1-this.cases.get(pid).prediction));
 				c++;
 				if(this.cases.get(pid).outcome==0){
 					alive++;
@@ -583,8 +634,8 @@ public class DBN  {
 		int dead = 0;
 		int alive = 0;
 		for (String pid: this.cases.keySet()){
-			if((this.cases.get(pid).deathPeriod == -1 ||this.cases.get(pid).deathPeriod > curPeriod) && this.cases.get(pid).fold == fold){ //CHANGED, was >=; only use patients that are still alive at landmark time- check again if >= makes sense 
-				//System.out.println("P(dead) "+pid+"= "+(1-this.cases.get(pid).prediction)+ " outcome: "+this.cases.get(pid).outcome );
+			if((this.cases.get(pid).deathPeriod == null ||this.cases.get(pid).deathPeriod > curPeriod) && this.cases.get(pid).fold == fold && missingData(pid, curPeriod) == 0){ //CHANGED, was >=; only use patients that are still alive at landmark time- check again if >= makes sense 
+				//System.out.println("P(dead) "+pid+"= "+(1-this.cases.get(pid).prediction)+ " outcome: "+this.cases.get(pid).outcome + " deathPeriod = "+this.cases.get(pid).deathPeriod);
 				score.add(this.cases.get(pid).outcome, 1-this.cases.get(pid).prediction);
 				c++;
 				if(this.cases.get(pid).outcome==0){
@@ -594,11 +645,31 @@ public class DBN  {
 				}
 			}
 		}
-		System.out.println("-> used cases for auc: "+c+"(dead = "+dead+" /alive = "+ alive+")");	
+		System.out.println("\t -> used cases for auc: "+c+"(dead = "+dead+" /alive = "+ alive+")");	
 		return score.auc();
 	}
-	
+	private Double missingData(String pid, int curPeriod){
+		//number of variables
+		//remove hidden variables 
+		ArrayList<String> temp = new ArrayList<String>(this.nodeNames);
+		temp.remove("Mortality_Risk");
+		temp.remove("Infection_Risk");
+		temp.remove("Cardiovascular_Risk");
+		temp.remove("Bone_Risk");
+		temp.remove("General_condition");
+		double numVars = (double)temp.size();
+		//System.out.println("numVars:"+numVars);
+		//number of observed values
+		Integer[] slices = this.cases.get(pid).getSlices();
+		double i = 0;
+		for(int s : slices){
+			if(s == curPeriod)i++;
+		}
+		//System.out.println("numVal:"+i);
 
+		Double missingRatio =  (1-(i/numVars));
+		return missingRatio;
+	}
 	public DataSet convertStateNumToStateName(DataSet ds){
 		int ncol = ds.getVariableCount();
 		int nrec = ds.getRecordCount();
@@ -640,7 +711,7 @@ public class DBN  {
 		double surv = this.getSurvivalProb(predPeriod, timelag, fixedHorizon); 
 		this.cases.get(pid).prediction = surv;
 		//Set real outcome
-		if(this.cases.get(pid).deathPeriod != -1 && this.cases.get(pid).deathPeriod <= predPeriod) {  //-1 results from "day of death => null" in the data base
+		if(this.cases.get(pid).deathPeriod != null && this.cases.get(pid).deathPeriod <= predPeriod) {  //-1 results from "day of death => null" in the data base
 			this.cases.get(pid).outcome = 1;
 		}else {
 			this.cases.get(pid).outcome = 0;
@@ -682,7 +753,7 @@ public class DBN  {
 			br = new BufferedWriter(new FileWriter(file));
 			StringBuilder sb = new StringBuilder();
 			for (String pid: this.cases.keySet()){
-				if(this.cases.get(pid).deathPeriod == -1 || this.cases.get(pid).deathPeriod > curPeriod){ //only use patients that are still alive at landmark time
+				if(this.cases.get(pid).deathPeriod == null || this.cases.get(pid).deathPeriod > curPeriod){ //only use patients that are still alive at landmark time
 					sb.append(pid + ";");    
 					sb.append(1-this.cases.get(pid).prediction + ";");    
 					sb.append(this.cases.get(pid).outcome + ";");
