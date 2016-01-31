@@ -486,7 +486,7 @@ public class DBN  {
 				//System.out.println("Successfully set node "+ node[i]+" in slice "+slice[i] +" to state "+state[i]);
 			}else{
 			//time lag  
-				if(timelag > 0 && (slice[i] <= maxPeriod-timelag || slice[i] <= maxPeriod && !node[i].equals("Death"))){
+				if(timelag > 0 && (slice[i] <= maxPeriod-timelag || (slice[i] <= maxPeriod && !node[i].equals("Death")))){
 					net.setTemporalEvidence(node[i], slice[i], state[i]);
 					//System.out.println("Successfully set node "+ node[i]+" in slice "+slice[i] +" to state "+state[i]);	
 				}
